@@ -2,13 +2,13 @@ import openpyxl
 import sys
 import os
 import re
+from PyQt5.QtGui import QTextCharFormat, QTextCursor, QColor, QFont
 from PyQt5.QtCore import QTimer, Qt, QPoint
 from PyQt5.QtWidgets import (
-    QApplication, QDialog, QFileDialog, QFrame, QLineEdit, QMessageBox, 
+    QApplication, QFileDialog, QFrame, QLineEdit, QMessageBox, 
     QProgressBar, QTableWidget, QTableWidgetItem, QWidget, QVBoxLayout, 
-    QHBoxLayout, QPushButton, QLabel, QSizePolicy, QScrollArea
+    QHBoxLayout, QPushButton, QLabel, QSizePolicy, QTextEdit, QScrollArea
 )
-
 
 class CustomHeader(QFrame):
     def __init__(self, parent, active=None):
@@ -95,8 +95,11 @@ class CustomHeader(QFrame):
     def toggle_max_restore(self):
         if self.parent.isMaximized():
             self.parent.showNormal()
+            BaseWindow.window_is_maximized = False
         else:
             self.parent.showMaximized()
+            BaseWindow.window_is_maximized = True
+
 
     def handle_active(self, button, action):
         self.set_active_button(button)
@@ -129,6 +132,7 @@ class CustomHeader(QFrame):
 
 class BaseWindow(QWidget):
     shared_df = None
+    window_is_maximized = False
     def __init__(self):
         super().__init__()
         self.old_pos = None
@@ -136,7 +140,7 @@ class BaseWindow(QWidget):
 
         if BaseWindow.shared_df is None:
             try:
-                base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(sys.argv[0])))
+                base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
                 mapping_dir = os.path.join(base_dir, "data")
                 latest_version = -1
                 latest_file = None
@@ -155,22 +159,22 @@ class BaseWindow(QWidget):
                     workbook = openpyxl.load_workbook(file_path)
                     sheet = workbook["Sample"]
 
-                    # Получаем заголовки
+                    # take headlines
                     headers = [cell.value.strip() if isinstance(cell.value, str) else str(cell.value)
                                for cell in next(sheet.iter_rows(min_row=1, max_row=1))]
 
-                    # Читаем строки с ffill логикой
+                    # Read lines with logic ffil
                     data = []
                     previous_cause = None
                     for row in sheet.iter_rows(min_row=2, values_only=True):
                         row_dict = dict(zip(headers, row))
                         
-                        # Приведение типов
+                        # Types
                         code = str(row_dict.get("Err Code")).strip() if row_dict.get("Err Code") is not None else ""
                         cause = row_dict.get("Cause")
                         action = str(row_dict.get("Action")).strip() if row_dict.get("Action") is not None else ""
 
-                        # FILL предыдущим Cause если пустой
+                        # Enter Cause from previous, if empty
                         if cause is None:
                             cause = previous_cause
                         else:
@@ -209,7 +213,7 @@ class BaseWindow(QWidget):
 
     # Header functions for buttons
     def open_search_window(self):
-        # Open file dialog to pick log files
+    # Open dilog after choosing file or files
         files, _ = QFileDialog.getOpenFileNames(
             self,
             "Select one or more log files",
@@ -218,15 +222,33 @@ class BaseWindow(QWidget):
         )
 
         if files:
-            # Keep only .log files (case-insensitive)
+            # Filter only log files
             valid_files = [f for f in files if f.lower().endswith(".log")]
 
             if not valid_files:
                 QMessageBox.warning(self, "Invalid File(s)", "Please select only .log files.")
                 return
 
-            self.selected_files = valid_files
-            self.user_choice_window = UserChoiceWindow(valid_files)
+            # Check for empty
+            non_empty_files = []
+            for f in valid_files:
+                try:
+                    if os.path.getsize(f) > 0:
+                        non_empty_files.append(f)
+                except Exception as e:
+                    print(f"[WARNING] Could not check file {f}: {e}")
+
+            # If one have chosen and it's empty
+            if len(valid_files) == 1 and not non_empty_files:
+                QMessageBox.warning(self, "Empty File", "No content found. Please, select non-empty file!")
+                return
+
+            if not non_empty_files:
+                QMessageBox.warning(self, "No Valid Files", "No non-empty log files found.")
+                return
+
+            self.selected_files = non_empty_files
+            self.user_choice_window = UserChoiceWindow(non_empty_files)
             self.user_choice_window.show()
             self.close()
         else:
@@ -267,6 +289,11 @@ class MainWindow(BaseWindow):
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setMinimumSize(800, 600)
         self.selected_files = []  # selected files (logs)
+
+        if BaseWindow.window_is_maximized:
+            self.showMaximized()
+        else:
+            self.showNormal()
 
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -318,10 +345,14 @@ class HelpWindow(BaseWindow):
     def __init__(self):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint)
-        self.setFixedSize(800, 600)
         self.setStyleSheet("background-color: #dcdcdc;")
 
-        # Default condition for window
+        if BaseWindow.window_is_maximized:
+            self.showMaximized()
+        else:
+            self.resize(800, 600)
+            self.showNormal()
+
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -329,23 +360,23 @@ class HelpWindow(BaseWindow):
         self.header = CustomHeader(self, active="Help")
         layout.addWidget(self.header)
 
-        # Title for instructions
+        # Title
         title = QLabel("Input error code and click «Enter» button")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("font-size: 14px; font-weight: bold;")
         layout.addWidget(title)
 
-        # The main container
+        # Main panel (flexible)
         panel = QFrame()
         panel.setStyleSheet("background-color: #bbbbbb; border: 2px solid black;")
-        panel.setFixedSize(700, 360)
+        panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(15, 10, 15, 10)
         panel_layout.setSpacing(10)
 
-
-        # Input and button
+        # Input field and button
+        # Input field and buttons (Enter + Home)
         input_row = QHBoxLayout()
         self.input_field = QLineEdit()
         self.input_field.setPlaceholderText("Input Error Code")
@@ -357,14 +388,21 @@ class HelpWindow(BaseWindow):
         self.enter_btn.setStyleSheet(self.button_style(font_size="13px", bold=True))
         self.enter_btn.clicked.connect(self.perform_search)
 
+        self.home_btn = QPushButton("Home")
+        self.home_btn.setFixedSize(80, 28)
+        self.home_btn.setStyleSheet(self.button_style(font_size="13px", bold=True))
+        self.home_btn.clicked.connect(self.back_to_home)
+
         input_row.addWidget(self.input_field)
         input_row.addWidget(self.enter_btn)
+        input_row.addWidget(self.home_btn)
         panel_layout.addLayout(input_row)
 
-        # Results with titles
+
+        # Result row
         result_row = QHBoxLayout()
 
-        # Left Part - Cause
+        # Left side - Cause
         cause_box = QVBoxLayout()
         cause_label = QLabel("Cause")
         cause_label.setAlignment(Qt.AlignCenter)
@@ -378,16 +416,13 @@ class HelpWindow(BaseWindow):
             padding: 6px;
             font-size: 13px;
         """)
-
-
-        self.cause_result.setMinimumSize(300, 130)
         self.cause_result.setWordWrap(True)
-
+        self.cause_result.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         cause_box.addWidget(cause_label)
         cause_box.addWidget(self.cause_result)
 
-        # Right part — Corrective Actions
+        # Right side - Corrective Actions
         action_box = QVBoxLayout()
         action_label = QLabel("Corrective Actions")
         action_label.setAlignment(Qt.AlignCenter)
@@ -401,20 +436,17 @@ class HelpWindow(BaseWindow):
             padding: 6px;
             font-size: 13px;
         """)
-
-        self.action_result.setMinimumSize(300, 130)
         self.action_result.setWordWrap(True)
-
+        self.action_result.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         action_box.addWidget(action_label)
         action_box.addWidget(self.action_result)
 
-        # Adding 2 parts to the row
         result_row.addLayout(cause_box)
         result_row.addLayout(action_box)
         panel_layout.addLayout(result_row)
 
-        layout.addWidget(panel, alignment=Qt.AlignCenter)
+        layout.addWidget(panel)
         self.setLayout(layout)
 
     def perform_search(self):
@@ -428,20 +460,20 @@ class HelpWindow(BaseWindow):
             return
 
         if not self.df:
-            QMessageBox.critical(self, "Data Error", "Mapping table not loaded.")
+            QMessageBox.critical(self, "Data Error", "There is no mapping table under the Result directory.")
             return
 
-        # Найти первую строку по коду
+        # Find the first line by error
         target_row = next((row for row in self.df if row["Err Code"] == code), None)
 
         if not target_row:
-            self.cause_result.setText("No matching error code found.")
-            self.action_result.setText("No corrective action available.")
+            self.cause_result.setText("We didn't find the mathces with the searched error code")
+            self.action_result.setText("We didn't find the mathces with the searched error code")
             return
 
         cause_value = target_row["Cause"] or "None"
 
-        # Найти все строки с тем же cause
+        # Find all lines with same cause
         matched_actions = set()
         for row in self.df:
             if row["Cause"] == cause_value and row["Action"]:
@@ -452,6 +484,10 @@ class HelpWindow(BaseWindow):
         self.cause_result.setText(cause_value)
         self.action_result.setText(actions_text if actions_text else "No corrective action available.")
 
+    def back_to_home(self):
+        self.main_window = MainWindow()
+        self.main_window.show()
+        self.close()
 
 
 class AboutWindow(BaseWindow):
@@ -460,6 +496,11 @@ class AboutWindow(BaseWindow):
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setFixedSize(800, 600)
         self.setStyleSheet("background-color: #dcdcdc;")
+
+        if BaseWindow.window_is_maximized:
+            self.showMaximized()
+        else:
+            self.showNormal()
 
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -533,6 +574,11 @@ class UserChoiceWindow(BaseWindow):
         self.setFixedSize(800, 600)
         self.setStyleSheet("background-color: #dcdcdc;")
 
+        if BaseWindow.window_is_maximized:
+            self.showMaximized()
+        else:
+            self.showNormal()
+
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(20)
@@ -579,7 +625,7 @@ class UserChoiceWindow(BaseWindow):
         self.close()
 
     def open_auto(self):
-        self.analysis_window = AnalyzingWindow(self.selected_files, "ALARM")
+        self.analysis_window = AnalyzingWindow(self.selected_files, "EALM")
         self.analysis_window.show()
         self.close()
 
@@ -597,6 +643,11 @@ class ManualModeWindow(BaseWindow):
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setFixedSize(800, 600)
         self.setStyleSheet("background-color: #dcdcdc;")
+
+        if BaseWindow.window_is_maximized:
+            self.showMaximized()
+        else:
+            self.showNormal()
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -621,6 +672,7 @@ class ManualModeWindow(BaseWindow):
         self.input_field = QLineEdit()
         self.input_field.setPlaceholderText("Input Search Text") 
         self.input_field.setStyleSheet("font-size: 16px; padding: 5px;")
+        self.input_field.setMaxLength(255)
         panel_layout.addWidget(self.input_field)
 
 
@@ -647,7 +699,7 @@ class ManualModeWindow(BaseWindow):
         search_text = self.input_field.text().strip()
 
         if not search_text:
-            QMessageBox.warning(self, "Input Error", "Please enter an error code.")
+            QMessageBox.warning(self, "Input Error", "Please enter the text you want to seacrh.")
             return
 
         self.analysis_window = AnalyzingWindow(self.selected_files, search_text)
@@ -675,6 +727,11 @@ class AnalyzingWindow(BaseWindow):
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setFixedSize(800, 600)
         self.setStyleSheet("background-color: #dcdcdc;")
+
+        if BaseWindow.window_is_maximized:
+            self.showMaximized()
+        else:
+            self.showNormal()
 
         self.layout = QVBoxLayout()
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -740,12 +797,16 @@ class AnalyzingWindow(BaseWindow):
             line_lower = line.lower()
             search_input = self.search_text.strip().lower()
 
-            # Split into terms if separated by comma or semicolon
+            search_input = self.search_text.strip().lower()
+            line_lower = line.lower()
+
+            # Divide on termins 
             if ',' in search_input or ';' in search_input:
-                search_terms = [term.strip() for term in re.split(r'[;,]', search_input)]
+                search_terms = {term for term in re.split(r'[;,]', search_input) if term}
                 matched = any(term in line_lower for term in search_terms)
             else:
                 matched = search_input in line_lower
+
 
             if matched:
                 self.result_data.append({
@@ -801,6 +862,11 @@ class NothingFoundWindow(BaseWindow):
         self.setFixedSize(800, 600)
         self.setStyleSheet("background-color: #dcdcdc;")
 
+        if BaseWindow.window_is_maximized:
+            self.showMaximized()
+        else:
+            self.showNormal()
+
         # Main layout for the whole window
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -822,7 +888,7 @@ class NothingFoundWindow(BaseWindow):
         panel_layout.setSpacing(20)
 
         # Label
-        label = QLabel("Nothing Found")
+        label = QLabel("We didn't find the mathces with the searched text")
         label.setAlignment(Qt.AlignCenter)
         label.setStyleSheet("font-size: 16px; font-weight: bold;")
         panel_layout.addWidget(label)
@@ -868,6 +934,11 @@ class FoundResultWindow(BaseWindow):
         self.resize(800, 600)
         self.setStyleSheet("background-color: #dcdcdc;")
 
+        if BaseWindow.window_is_maximized:
+            self.showMaximized()
+        else:
+            self.showNormal()
+
         layout = QVBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
@@ -880,8 +951,19 @@ class FoundResultWindow(BaseWindow):
         info.setStyleSheet("font-weight: bold; font-size: 14px;")
         layout.addWidget(info)
 
+        # Button for extract the table's result 
+        self.expand_table_btn = QPushButton("🔳")
+        self.expand_table_btn.setFixedSize(24, 24)
+        self.expand_table_btn.clicked.connect(self.toggle_table_size)
+
+        # Button for extract the log file's lines
+        self.expand_log_btn = QPushButton("🔳")
+        self.expand_log_btn.setFixedSize(24, 24)
+        self.expand_log_btn.clicked.connect(self.toggle_log_size)
+
         # Table of results
         self.result_area = QTableWidget()
+        self.result_area.setMaximumHeight(200)
         self.result_area.setColumnCount(3)
         self.result_area.setHorizontalHeaderLabels(["File Name", "Location", "Text in a Row"])
         self.result_area.setRowCount(len(self.results))
@@ -896,17 +978,36 @@ class FoundResultWindow(BaseWindow):
 
         self.result_area.cellClicked.connect(self.show_log_context)
 
-        layout.addWidget(self.result_area)
+        table_container = QHBoxLayout()
+        table_container.addWidget(self.result_area)
+        table_container.addWidget(self.expand_table_btn, alignment=Qt.AlignTop)
+        layout.addLayout(table_container)
 
-        self.log_output = QLabel("> Log File <")
-        self.log_output.setStyleSheet("background-color: #eeeeee; padding: 12px; font-family: monospace;")
-        self.log_output.setMinimumHeight(150)
-        self.log_output.setWordWrap(True)
 
+        self.log_output = QTextEdit()
+        self.log_output.setReadOnly(True)
+        self.log_output.setStyleSheet("background-color: #eeeeee; font-family: monospace; font-size: 12px;")
+        self.log_output.setMinimumHeight(250)
+        
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setWidget(self.log_output)
-        layout.addWidget(self.scroll)
+        self.scroll.setMaximumHeight(250)
+
+        log_container = QHBoxLayout()
+        log_container.addWidget(self.scroll)
+        log_container.addWidget(self.expand_log_btn, alignment=Qt.AlignTop)
+        layout.addLayout(log_container)
+
+        if self.result_area.maximumHeight() < 500:
+            self.result_area.setMaximumHeight(800)
+        else:
+            self.result_area.setMaximumHeight(200)
+
+        if self.scroll.maximumHeight() < 500:
+            self.scroll.setMaximumHeight(800)
+        else:
+            self.scroll.setMaximumHeight(250)
 
 
         # Buttons
@@ -942,21 +1043,56 @@ class FoundResultWindow(BaseWindow):
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 lines = f.readlines()
 
-            start = max(0, line_num - 6)
-            end = min(len(lines), line_num + 5)
+            total_lines = len(lines)
+            center_index = line_num - 1
+
+            # 250 above and down
+            start = max(0, center_index - 250)
+            end = min(total_lines, center_index + 251)
             context = lines[start:end]
 
-            highlighted = []
-            for idx, line in enumerate(context, start=start + 1):
-                if idx == line_num:
-                    highlighted.append(f">>> Line {idx}: {line.strip()}")
-                else:
-                    highlighted.append(f"    Line {idx}: {line.strip()}")
+            # Show lines
+            display_lines = []
+            for i, line in enumerate(context, start=start + 1):
+                prefix = f">>> Line {i}: " if i == line_num else f"    Line {i}: "
+                display_lines.append(prefix + line.rstrip())
 
-            self.log_output.setText("\n".join(highlighted))
+            self.log_output.setPlainText("\n".join(display_lines))
+
+            # Highlighed line_num
+            relative_line_index = line_num - start  # index inside QTextEdit
+            cursor = self.log_output.textCursor()
+            cursor.movePosition(QTextCursor.Start)
+
+            for _ in range(relative_line_index):
+                cursor.movePosition(QTextCursor.Down)
+
+            fmt = QTextCharFormat()
+            fmt.setBackground(QColor("yellow"))
+            fmt.setFontWeight(QFont.Bold)
+            cursor.select(QTextCursor.LineUnderCursor)
+            cursor.mergeCharFormat(fmt)
+
+            # Centrilized
+            visible_lines = int(self.log_output.viewport().height() / self.log_output.fontMetrics().height())
+            scroll_to = max(0, relative_line_index - visible_lines // 2)
+            self.log_output.verticalScrollBar().setValue(scroll_to)
 
         except Exception as e:
-            self.log_output.setText(f"Error reading file: {e}")
+            self.log_output.setPlainText(f"Error reading file: {e}")
+
+    def toggle_table_size(self):
+        self.popup = ResultTablePopup(self.result_area)
+        self.popup.showMaximized()
+
+    def toggle_log_size(self):
+        searched_text = ""
+        current_row = self.result_area.currentRow()
+        if current_row >= 0:
+            searched_text = self.results[current_row].get("text", "").strip()
+
+        self.log_popup = LogFilePopup(self.log_output.toPlainText(), searched_text)
+        self.log_popup.showMaximized()
 
     def back(self):
         self.user_choice_window = UserChoiceWindow(self.selected_files)
@@ -967,6 +1103,76 @@ class FoundResultWindow(BaseWindow):
         self.main_window = MainWindow()
         self.main_window.show()
         self.close()
+
+class ResultTablePopup(QWidget):
+    def __init__(self, table_widget):
+        super().__init__()
+        self.setWindowTitle("Full Result Table")
+        self.resize(800, 600)
+        layout = QVBoxLayout(self)
+
+        if BaseWindow.window_is_maximized:
+            self.showMaximized()
+        else:
+            self.showNormal()
+
+        table_copy = QTableWidget()
+        table_copy.setColumnCount(table_widget.columnCount())
+        table_copy.setRowCount(table_widget.rowCount())
+        table_copy.setHorizontalHeaderLabels([table_widget.horizontalHeaderItem(i).text() for i in range(table_widget.columnCount())])
+        table_copy.setEditTriggers(QTableWidget.NoEditTriggers)
+        table_copy.setSelectionBehavior(QTableWidget.SelectRows)
+
+        for row in range(table_widget.rowCount()):
+            for col in range(table_widget.columnCount()):
+                item = table_widget.item(row, col)
+                table_copy.setItem(row, col, QTableWidgetItem(item.text() if item else ""))
+
+        layout.addWidget(table_copy)
+
+class LogFilePopup(QWidget):
+    def __init__(self, log_text, highlight_text=""):
+        super().__init__()
+        self.setWindowTitle("Full Log View")
+        self.resize(800, 600)
+        layout = QVBoxLayout(self)
+
+        if BaseWindow.window_is_maximized:
+            self.showMaximized()
+        else:
+            self.showNormal()
+
+        self.text_area = QTextEdit()
+        self.text_area.setReadOnly(True)
+        self.text_area.setStyleSheet("background-color: #eeeeee; font-family: monospace; font-size: 12px;")
+        self.text_area.setPlainText(log_text)
+        layout.addWidget(self.text_area)
+
+        if highlight_text:
+            self.highlight_text_occurrences(highlight_text)
+
+    def highlight_text_occurrences(self, keyword):
+        cursor = self.text_area.textCursor()
+        fmt = QTextCharFormat()
+        fmt.setBackground(QColor("yellow"))
+        fmt.setFontWeight(QFont.Bold)
+
+        content = self.text_area.toPlainText()
+        pattern = re.escape(keyword)
+        regex = re.compile(pattern, re.IGNORECASE)
+
+        for match in regex.finditer(content):
+            start, end = match.span()
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.KeepAnchor)
+            cursor.setCharFormat(fmt)
+
+        # Go to first matching
+        first = regex.search(content)
+        if first:
+            cursor.setPosition(first.start())
+            self.text_area.setTextCursor(cursor)
+            self.text_area.ensureCursorVisible()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
