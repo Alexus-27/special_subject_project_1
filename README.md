@@ -39,7 +39,7 @@ A desktop application for scanning and analyzing log files to detect errors and 
 
 | Component       | Technology       |
 |----------------|------------------|
-| Language        | Python 3         |
+| Language        | Python 3.9.2       |
 | GUI             | PyQt5            |
 | File Handling   | `os`, `pathlib`  |
 | Pattern Matching| `re` (regex)     |
