@@ -60,7 +60,7 @@ A desktop application for scanning and analyzing log files to detect errors and 
 
  ## Requirements
 
-- Python 3.10 or higher
+- Python 3.9 or higher
 - PyQt5
 - pandas
 
@@ -72,7 +72,7 @@ Follow these steps to install and run the Automated Log Analysis System on your 
 
 Make sure you have the following installed:
 
-- [Python 3.10+](https://www.python.org/downloads/)
+- [Python 3.9+](https://www.python.org/downloads/)
 - `pip` package installer (comes with Python)
 
 ---
