@@ -7,7 +7,8 @@ from PyQt5.QtCore import QTimer, Qt, QPoint
 from PyQt5.QtWidgets import (
     QApplication, QFileDialog, QFrame, QLineEdit, QMessageBox, 
     QProgressBar, QTableWidget, QTableWidgetItem, QWidget, QVBoxLayout, 
-    QHBoxLayout, QPushButton, QLabel, QSizePolicy, QTextEdit, QScrollArea
+    QHBoxLayout, QPushButton, QLabel, QSizePolicy, QTextEdit, QScrollArea,
+    QHeaderView
 )
 
 class CustomHeader(QFrame):
@@ -51,8 +52,17 @@ class CustomHeader(QFrame):
 
         # Window control buttons
         self.minimize_btn = QPushButton("–")
-        self.maximize_btn = QPushButton("□")
+        self.maximize_btn = QPushButton("🗖")
+
         self.close_btn = QPushButton("X")
+
+        # self.maximize_btn.setText("□")
+        # self.maximize_btn.setToolTip("Maximize")
+
+        # self.minimize_btn.setText("–")
+        # self.maximize_btn.setToolTip("Minimize")
+
+        
 
         for btn in [self.minimize_btn, self.maximize_btn, self.close_btn]:
             btn.setFixedSize(30, 30)
@@ -71,6 +81,15 @@ class CustomHeader(QFrame):
         layout.addWidget(self.close_btn)
 
         self.setLayout(layout)
+
+        # Set initial state of maximize button depending on BaseWindow.window_is_maximized
+        if BaseWindow.window_is_maximized:
+            self.maximize_btn.setText("🗗")  # Or 🗗
+            self.maximize_btn.setToolTip("Restore")
+        else:
+            self.maximize_btn.setText("🗖")
+            self.maximize_btn.setToolTip("Maximize")
+
 
         # Connections
         self.close_btn.clicked.connect(QApplication.quit)
@@ -96,9 +115,13 @@ class CustomHeader(QFrame):
         if self.parent.isMaximized():
             self.parent.showNormal()
             BaseWindow.window_is_maximized = False
+            self.maximize_btn.setText("🗖")
+            self.maximize_btn.setToolTip("Maximize")
         else:
             self.parent.showMaximized()
             BaseWindow.window_is_maximized = True
+            self.maximize_btn.setText("🗗")
+            self.maximize_btn.setToolTip("Minimize")
 
 
     def handle_active(self, button, action):
@@ -133,6 +156,7 @@ class CustomHeader(QFrame):
 class BaseWindow(QWidget):
     shared_df = None
     window_is_maximized = False
+    latest_version = -1
     def __init__(self):
         super().__init__()
         self.old_pos = None
@@ -142,7 +166,6 @@ class BaseWindow(QWidget):
             try:
                 base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
                 mapping_dir = os.path.join(base_dir, "data")
-                latest_version = -1
                 latest_file = None
 
                 for filename in os.listdir(mapping_dir):
@@ -150,8 +173,8 @@ class BaseWindow(QWidget):
                         match = re.search(r"mapping_table(\d+)\.xlsx", filename)
                         if match:
                             version = int(match.group(1))
-                            if version > latest_version:
-                                latest_version = version
+                            if version > BaseWindow.latest_version:
+                                BaseWindow.latest_version = version
                                 latest_file = filename
 
                 if latest_file:
@@ -345,12 +368,12 @@ class HelpWindow(BaseWindow):
     def __init__(self):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setMinimumSize(800, 600)
         self.setStyleSheet("background-color: #dcdcdc;")
 
         if BaseWindow.window_is_maximized:
             self.showMaximized()
         else:
-            self.resize(800, 600)
             self.showNormal()
 
         layout = QVBoxLayout()
@@ -381,7 +404,8 @@ class HelpWindow(BaseWindow):
         self.input_field = QLineEdit()
         self.input_field.setPlaceholderText("Input Error Code")
         self.input_field.setFixedHeight(28)
-        self.input_field.setStyleSheet("font-size: 13px; padding: 4px;")
+        self.input_field.setStyleSheet("background-color: white; font-size: 13px; padding: 4px; QLineEdit::placeholder { font-weight: bold;};")
+        self.input_field.setFocus()
 
         self.enter_btn = QPushButton("Enter")
         self.enter_btn.setFixedSize(80, 28)
@@ -448,6 +472,10 @@ class HelpWindow(BaseWindow):
 
         layout.addWidget(panel)
         self.setLayout(layout)
+    
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.perform_search()
 
     def perform_search(self):
         code = self.input_field.text().strip()
@@ -494,7 +522,7 @@ class AboutWindow(BaseWindow):
     def __init__(self):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint)
-        self.setFixedSize(800, 600)
+        self.setMinimumSize(800, 600)
         self.setStyleSheet("background-color: #dcdcdc;")
 
         if BaseWindow.window_is_maximized:
@@ -520,7 +548,7 @@ class AboutWindow(BaseWindow):
             border: 1px solid #999999;
             border-radius: 10px;
         """)
-        panel.setFixedSize(600, 360)
+        panel.setFixedSize(640, 420)
 
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(30, 25, 30, 25)
@@ -534,7 +562,7 @@ class AboutWindow(BaseWindow):
 
         # App Description
         description = QLabel(
-            "This system provides intelligent log file analysis and error mapping support.\n"
+            f"This system provides intelligent log file analysis and error mapping support. Current version of the mapping table is {BaseWindow.latest_version:04d}.\n"
             "It helps users identify issues by searching error codes and reviewing log contexts."
         )
         description.setAlignment(Qt.AlignCenter)
@@ -562,9 +590,28 @@ class AboutWindow(BaseWindow):
             member_label.setStyleSheet("font-size: 13px; color: #111111; padding-left: 10px;")
             panel_layout.addWidget(member_label)
 
+
+        # Home button inside the panel
+        home_btn = QPushButton("Home")
+        home_btn.setFixedHeight(35)
+        home_btn.setStyleSheet(self.button_style(font_size="14px", bold=True))
+        home_btn.clicked.connect(self.back_to_home)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(home_btn)
+        btn_row.addStretch()
+
+        panel_layout.addLayout(btn_row)
+
         center_layout.addWidget(panel)
         layout.addWidget(center_container, alignment=Qt.AlignCenter)
         self.setLayout(layout)
+
+    def back_to_home(self):
+        self.main_window = MainWindow()
+        self.main_window.show()
+        self.close()
 
 class UserChoiceWindow(BaseWindow):
     def __init__(self, selected_files):
@@ -971,6 +1018,12 @@ class FoundResultWindow(BaseWindow):
         self.result_area.setEditTriggers(QTableWidget.NoEditTriggers)
         self.result_area.setSelectionBehavior(QTableWidget.SelectRows)
 
+        header = self.result_area.horizontalHeader()
+        header.setStretchLastSection(True)
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+
         for row, res in enumerate(self.results):
             self.result_area.setItem(row, 0, QTableWidgetItem(res["file"]))
             self.result_area.setItem(row, 1, QTableWidgetItem(f"Line {res['line']}"))
@@ -1044,42 +1097,46 @@ class FoundResultWindow(BaseWindow):
                 lines = f.readlines()
 
             total_lines = len(lines)
-            center_index = line_num - 1
+            center_index = line_num
 
-            # 250 above and down
+            # 250 above and below
             start = max(0, center_index - 250)
             end = min(total_lines, center_index + 251)
             context = lines[start:end]
 
-            # Show lines
+            # Format and display context
             display_lines = []
             for i, line in enumerate(context, start=start + 1):
-                prefix = f">>> Line {i}: " if i == line_num else f"    Line {i}: "
+                prefix = f">>> Line {i}: " if i == center_index else f"Line {i}: "
                 display_lines.append(prefix + line.rstrip())
 
-            self.log_output.setPlainText("\n".join(display_lines))
+            full_text = "\n".join(display_lines)
+            self.log_output.setPlainText(full_text)
 
-            # Highlighed line_num
-            relative_line_index = line_num - start  # index inside QTextEdit
-            cursor = self.log_output.textCursor()
-            cursor.movePosition(QTextCursor.Start)
+            # Highlight line
+            highlight_line = f">>> Line {center_index}:"
+            text = self.log_output.toPlainText()
+            pos = text.find(highlight_line)
+            if pos != -1:
+                cursor = self.log_output.textCursor()
+                cursor.setPosition(pos)
+                cursor.movePosition(QTextCursor.EndOfLine, QTextCursor.KeepAnchor)
 
-            for _ in range(relative_line_index):
-                cursor.movePosition(QTextCursor.Down)
+                fmt = QTextCharFormat()
+                fmt.setBackground(QColor("yellow"))
+                fmt.setFontWeight(QFont.Bold)
+                cursor.mergeCharFormat(fmt)
 
-            fmt = QTextCharFormat()
-            fmt.setBackground(QColor("yellow"))
-            fmt.setFontWeight(QFont.Bold)
-            cursor.select(QTextCursor.LineUnderCursor)
-            cursor.mergeCharFormat(fmt)
-
-            # Centrilized
-            visible_lines = int(self.log_output.viewport().height() / self.log_output.fontMetrics().height())
-            scroll_to = max(0, relative_line_index - visible_lines // 2)
-            self.log_output.verticalScrollBar().setValue(scroll_to)
+                # Center scroll to highlighted line
+                block_number = text[:pos].count("\n")
+                block_height = self.log_output.fontMetrics().height()
+                visible_blocks = int(self.log_output.viewport().height() / block_height)
+                center_scroll_value = max(0, block_number - visible_blocks // 2)
+                self.log_output.verticalScrollBar().setValue(center_scroll_value)
 
         except Exception as e:
             self.log_output.setPlainText(f"Error reading file: {e}")
+
 
     def toggle_table_size(self):
         self.popup = ResultTablePopup(self.result_area)
